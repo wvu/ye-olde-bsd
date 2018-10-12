@@ -1,0 +1,167 @@
+#!/usr/bin/expect -f
+
+#
+# http://gunkies.org/wiki/Installing_4.3_BSD_on_SIMH
+#
+
+# Match as much as the scouter says
+match_max 9001
+
+# And wait as long as Air Supply can
+set timeout -1
+
+# Simplify shell commands
+proc send_cmd line {
+  send "$line\n"
+  expect "# "
+}
+
+# Simplify here documents
+proc send_heredoc line {
+  send "$line\n"
+
+  if [string equal $line "EOF"] {
+    expect "# "
+  } else {
+    expect "> "
+  }
+}
+
+# Simplify file I/O
+proc send_file file {
+  set fh [open $file]
+  set buf [read $fh]
+  close $fh
+
+  foreach line [split $buf "\n"] {
+    send "$line\n"
+    expect "\n"
+  }
+}
+
+# Booting the emulator
+spawn ./vax780 install.ini
+expect "# "
+
+# Restoring the rootdump
+send_cmd "cd /dev"
+send_cmd "./MAKEDEV ra1"
+send_cmd "cd /"
+send_cmd "disk=ra1 type=ra81 tape=ts xtr"
+# https://utcc.utoronto.ca/~cks/space/blog/unix/TheLegendOfSync
+send_cmd "sync"
+send_cmd "sync"
+send_cmd "sync"
+send ""
+expect "Simulation stopped*\n"
+send "q\n"
+expect eof
+
+# Booting the emulator
+spawn ./vax780 boot.ini
+expect "# "
+
+# Preparing the disk
+send_cmd "disk=ra"
+send_cmd "name=ra0h;type=ra81"
+send_cmd "cd /dev"
+send_cmd "sh ./MAKEDEV ts0 pty0 dz0;sync"
+send_cmd "cd /"
+send_cmd "newfs \$name \$type"
+
+# Restoring the usr slice
+send_cmd "mount /dev/\$name /usr"
+send_cmd "cd /usr"
+# Restore /usr/sys
+send_cmd "mkdir sys"
+send_cmd "cd sys"
+send_cmd "mt rew"
+send_cmd "mt fsf 3"
+send_cmd "tar xpbf 20 /dev/rmt12"
+# Restore /usr
+send_cmd "cd .."
+send_cmd "mt fsf"
+send_cmd "tar xpbf 20 /dev/rmt12"
+# Restore /usr/src
+send_cmd "mkdir src"
+send_cmd "cd src"
+send_cmd "mt fsf 2"
+send_cmd "tar xpbf 20 /dev/rmt12"
+# Restore /usr/src/contrib
+send_cmd "mkdir contrib"
+send_cmd "cd contrib"
+send_cmd "mt fsf"
+send_cmd "tar xpbf 20 /dev/rmt12"
+send_cmd "cd /"
+send_cmd "chmod 755 / /usr /usr/sys"
+send_cmd "rm -rf sys"
+send_cmd "ln -s /usr/sys sys"
+
+# Configuring the fstab
+send_cmd "cd /etc"
+send_cmd "cp fstab.ra81 fstab"
+send_cmd "newfs ra0g ra81"
+
+# Configuring networking using ed(1), the standard editor
+send_heredoc "ed <<EOF"
+# Edit /etc/hosts
+send_heredoc "e /etc/hosts"
+send_heredoc "10c"
+send_heredoc "127.0.0.1	localhost"
+send_heredoc "."
+send_heredoc "13,14c"
+send_heredoc "#0.2		myname.my.domain myname"
+send_heredoc "#0.3		myfriend.my.domain myfriend"
+send_heredoc "10.0.2.15	simh"
+send_heredoc "."
+send_heredoc "w"
+# Edit /etc/networks
+send_heredoc "e /etc/networks"
+send_heredoc "39a"
+send_heredoc "my-netmask	255.255.255"
+send_heredoc "."
+send_heredoc "w"
+# Edit /etc/rc.local
+send_heredoc "e /etc/rc.local"
+send_heredoc "7,9c"
+send_heredoc "hostname simh"
+send_heredoc "#ifconfig imp0 netmask my-netmask \\`hostname\\`"
+send_heredoc "#ifconfig en0 netmask my-netmask \\`hostname\\`"
+send_heredoc "."
+send_heredoc "10a"
+send_heredoc "ifconfig de0 netmask my-netmask \\`hostname\\`"
+send_heredoc "."
+send_heredoc "12a"
+send_heredoc "route add default 10.0.2.2 1"
+send_heredoc "."
+send_heredoc "w"
+# Edit /etc/resolv.conf even when it doesn't exist
+send_heredoc "e /dev/null"
+send_heredoc "0a"
+send_heredoc "nameserver 10.0.2.3"
+send_heredoc "."
+send_heredoc "w /etc/resolv.conf"
+send_heredoc "q"
+send_heredoc "EOF"
+
+# Fixing the "screensaver"
+send_heredoc "ed /usr/lib/crontab <<EOF"
+send_heredoc "1d"
+send_heredoc "w"
+send_heredoc "q"
+send_heredoc "EOF"
+
+# Configuring sendmail
+send_cmd "newaliases"
+
+# Exeunt
+send_cmd "cd /"
+send_cmd "umount /dev/\$name"
+send_cmd "fsck /dev/r\$name"
+send_cmd "sync"
+send_cmd "sync"
+send_cmd "sync"
+send ""
+expect "Simulation stopped*\n"
+send "q\n"
+expect eof
