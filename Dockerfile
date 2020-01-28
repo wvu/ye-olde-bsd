@@ -6,7 +6,7 @@
 # This is my first Dockerfile, so please be kind :)
 #
 
-FROM alpine as simh
+FROM alpine AS simh
 
 WORKDIR /simh
 
