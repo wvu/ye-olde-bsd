@@ -17,11 +17,11 @@ RUN apk --no-cache add -t build-essential \
       make
 
 # Build and "install" SIMH
-RUN wget https://github.com/simh/simh/archive/master.zip && \
-    unzip master.zip && \
+RUN wget https://github.com/simh/simh/archive/master.tar.gz && \
+    tar xf master.tar.gz && \
     make -C simh-master vax780 && \
     cp simh-master/BIN/vax780 . && \
-    rm -rf simh-master master.zip && \
+    rm -rf simh-master master.tar.gz && \
     apk del build-essential
 
 FROM alpine
